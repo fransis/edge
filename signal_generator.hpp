@@ -18,7 +18,7 @@ public:
     };
     typedef vector<minmax_list_item_t> minmax_list_t;
 
-    typedef vector<int> index_array_t;
+    typedef vector<int> int_array_t;
 
     struct sigstat_array_item_t {
         bool sigstat_long;
@@ -28,27 +28,51 @@ public:
 
 public:
     vector<float> m_arr;
+    int m_arr_size;
     int m_major_ws;
     int m_minor_ws;
 
 public:
     signal_generator(const vector<float> &arr, int major_ws, int minor_ws) 
         : m_arr(arr)
+        , m_arr_size(arr.size())
         , m_major_ws(major_ws)
         , m_minor_ws(minor_ws) {
     }
 
 public:
-    sigstat_array_t build_state_array(void) {
-        auto major_envelop_index = build_envelop_seq_array(make_minmax_list(m_major_ws));
-        auto minor_envelop_index = build_envelop_seq_array(make_minmax_list(m_minor_ws));
-        auto minor_loop_count_array = build_minor_envelop_count_array(major_envelop_index, minor_envelop_index);
+    sigstat_array_t build_state_array(int holdings) {
+        auto major_envelop_seq_array = build_envelop_seq_array(make_minmax_list(m_major_ws));
+        auto minor_envelop_seq_array = build_envelop_seq_array(make_minmax_list(m_minor_ws));
+        auto envelop_count_array = build_envelop_count_array(major_envelop_seq_array, minor_envelop_seq_array);
         sigstat_array_t sigstat;
-        sigstat.resize(m_arr.size());
+        sigstat.resize(m_arr_size);
 
-        for (int i = 0; i < m_arr.size(); i++) {
-            sigstat[i].sigstat_long = true;
-            sigstat[i].sigstat_short = true;
+        bool sigstat_long = false;
+        int long_remain = 0;
+        bool sigstat_short = false;
+        int short_remain = 0;
+        for (int i = 0; i < m_arr_size; i++) {
+            if (major_envelop_seq_array[i] > 0 && minor_envelop_seq_array[i] == 2 && envelop_count_array[i] == 2) {
+                sigstat_long = true;
+                long_remain = holdings;
+            }
+            else {
+                long_remain -= 1;
+                if (long_remain < 0)
+                    sigstat_long = false;
+            }
+            sigstat[i].sigstat_long = sigstat_long;
+            if (major_envelop_seq_array[i] < 0 && minor_envelop_seq_array[i] == -2 && envelop_count_array[i] == -2) {
+                sigstat_short = true;
+                short_remain = holdings;
+            }
+            else {
+                short_remain -= 1;
+                if (short_remain < 0)
+                    sigstat_short = false;
+            }
+            sigstat[i].sigstat_short = sigstat_short;
         }
 
         return sigstat;
@@ -90,14 +114,14 @@ protected:
         return result;
     }
 
-    index_array_t build_envelop_seq_array(const minmax_list_t& minmax_list) {
-        index_array_t result;
-        result.resize(m_arr.size());
+    int_array_t build_envelop_seq_array(const minmax_list_t& minmax_list) {
+        int_array_t result;
+        result.resize(m_arr_size);
         int current_value = minmax_list[0].is_max > 0 ? -1 : 1;
         for (auto it = minmax_list.begin(); it != minmax_list.end(); it++) {
             int start_idx = it->idx;
             auto it_next = it + 1;
-            int end_idx = (it_next == minmax_list.end()) ? m_arr.size() : it_next->idx;
+            int end_idx = (it_next == minmax_list.end()) ? m_arr_size : it_next->idx;
             for (int i = start_idx; i < end_idx; i++) {
                 result[i] = current_value * (i - start_idx + 1);
             }
@@ -106,26 +130,28 @@ protected:
         return result;
     }
 
-    index_array_t build_minor_envelop_count_array(const index_array_t& major_index_array, const index_array_t& minor_index_array) {
-        index_array_t result;
+    int_array_t build_envelop_count_array(const int_array_t& major_seq_array, const int_array_t& minor_seq_array) {
+        int_array_t result;
+        result.resize(m_arr_size);
         int plus_cnt = 0;
         int minus_cnt = 0;
-        for (int i = 0; i < m_arr.size(); i++) {
-            major_v = indices[i, 0]
-            minor_v = indices[i, 1]
-            if major_v == 1 or major_v == -1:
-                minus_cnt = 0
-                plus_cnt = 0
-            if minor_v < 0:
-                if minor_v == -1:
-                    minus_cnt -= 1
-                indices[i, 2] = minus_cnt
-            elif minor_v > 0:
-                if minor_v == 1:
-                    plus_cnt += 1
-                indices[i, 2] = plus_cnt
-            else:
-                indices[i, 2] = 0
+        for (int i = 0; i < m_arr_size; i++) {
+            int major_seq = major_seq_array[i];
+            int minor_seq = minor_seq_array[i];
+            if (major_seq == 1 or major_seq == -1) {
+                minus_cnt = 0;
+                plus_cnt = 0;
+            }
+            if (minor_seq < 0) {
+                if (minor_seq == -1)
+                    minus_cnt -= 1;
+                result[i] = minus_cnt;
+            }
+            else if (minor_seq > 0) {
+                if (minor_seq == 1)
+                    plus_cnt += 1;
+                result[i] = plus_cnt;
+            }
         }
         return result;
     }
@@ -133,7 +159,7 @@ protected:
 private:
     template <typename Compare>
     int find_local_envelop(int winsize, int istart=0) {
-        int ubound = m_arr.size() - 1;
+        int ubound = m_arr_size - 1;
         int iend = min(ubound, istart + winsize);
         int icur = istart + 1;
         while (icur <= iend) {
@@ -148,11 +174,10 @@ private:
 
     template <typename Compare>
     vector<int> make_envelop_list(int winsize) {
-        int arr_size = m_arr.size();
         vector<int> result;
         int istart = 0;
         int idx = find_local_envelop<Compare>(winsize, istart);
-        while (idx < arr_size) {
+        while (idx < m_arr_size) {
             if (istart != idx)
                 result.push_back(idx);
             istart = idx + winsize + 1;
@@ -161,87 +186,3 @@ private:
         return result;
     }
 };
-
-def plot_signal(arr, state):
-    arr_size = arr.shape[0]
-    fig, ax = plt.subplots(figsize=(14, 4))
-    x = np.arange(arr_size, dtype=float)
-    ax.plot(x, csv[:,4], marker='o', markersize=2, linewidth=1)
-    ymin, ymax = ax.get_ylim()
-    ax.fill_between(x, ymin, ymax, where=state>0, color='red', alpha=.1, step='mid')
-    ax.fill_between(x, ymin, ymax, where=state<0, color='blue', alpha=.1, step='mid')
-    plt.tight_layout()
-    plt.grid(True)
-    plt.show()
-
-
-def find_state(arr, major_ws, minor_ws, holding):
-    arr_size = arr.shape[0]
-    indices = np.zeros((arr_size, 3), dtype=np.int32)
-    indices[:, 0] = find_minmax_indices(arr, major_ws)
-    indices[:, 1] = find_minmax_indices(arr, minor_ws)
-    plus_cnt = 0
-    minus_cnt = 0
-    for i in range(arr_size):
-        major_v = indices[i, 0]
-        minor_v = indices[i, 1]
-        if major_v == 1 or major_v == -1:
-            minus_cnt = 0
-            plus_cnt = 0
-        if minor_v < 0:
-            if minor_v == -1:
-                minus_cnt -= 1
-            indices[i, 2] = minus_cnt
-        elif minor_v > 0:
-            if minor_v == 1:
-                plus_cnt += 1
-            indices[i, 2] = plus_cnt
-        else:
-            indices[i, 2] = 0
-
-    states = np.zeros((arr_size, 3), dtype=np.int32)
-    rising_state = 0
-    rising_remain = 0
-    falling_state = 0
-    falling_remain = 0
-    state = 0
-    remain = 0
-    for i in range(arr_size):
-        if indices[i, 0] > 0 and indices[i, 1] == 2 and indices[i, 2] == 2:
-            rising_state = 1
-            rising_remain = holding
-        else:
-            rising_remain -= 1
-            if rising_remain < 0:
-                rising_state = 0
-        states[i, 0] = rising_state
-        if indices[i, 0] < 0 and indices[i, 1] == -2 and indices[i, 2] == -2:
-            falling_state = -1
-            falling_remain = holding
-        else:
-            falling_remain -= 1
-            if falling_remain < 0:
-                falling_state = 0
-        states[i, 1] = falling_state
-        if indices[i, 0] > 0 and indices[i, 1] == 2 and indices[i, 2] == 2:
-            state = 1
-            remain = holding
-        elif indices[i, 0] < 0 and indices[i, 1] == -2 and indices[i, 2] == -2:
-            state = -1
-            remain = holding
-        else:
-            remain -= 1
-            if remain < 0:
-                state = 0
-        states[i, 2] = state
-    plot_signal(arr, states[:, 0])
-    plot_signal(arr, states[:, 1])
-    plot_signal(arr, states[:, 2])
-    return states
-
-
-states = find_state(csv[:, 4], 45, 2, 60)
-
-
-states
-
