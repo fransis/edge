@@ -161,3 +161,87 @@ private:
         return result;
     }
 };
+
+def plot_signal(arr, state):
+    arr_size = arr.shape[0]
+    fig, ax = plt.subplots(figsize=(14, 4))
+    x = np.arange(arr_size, dtype=float)
+    ax.plot(x, csv[:,4], marker='o', markersize=2, linewidth=1)
+    ymin, ymax = ax.get_ylim()
+    ax.fill_between(x, ymin, ymax, where=state>0, color='red', alpha=.1, step='mid')
+    ax.fill_between(x, ymin, ymax, where=state<0, color='blue', alpha=.1, step='mid')
+    plt.tight_layout()
+    plt.grid(True)
+    plt.show()
+
+
+def find_state(arr, major_ws, minor_ws, holding):
+    arr_size = arr.shape[0]
+    indices = np.zeros((arr_size, 3), dtype=np.int32)
+    indices[:, 0] = find_minmax_indices(arr, major_ws)
+    indices[:, 1] = find_minmax_indices(arr, minor_ws)
+    plus_cnt = 0
+    minus_cnt = 0
+    for i in range(arr_size):
+        major_v = indices[i, 0]
+        minor_v = indices[i, 1]
+        if major_v == 1 or major_v == -1:
+            minus_cnt = 0
+            plus_cnt = 0
+        if minor_v < 0:
+            if minor_v == -1:
+                minus_cnt -= 1
+            indices[i, 2] = minus_cnt
+        elif minor_v > 0:
+            if minor_v == 1:
+                plus_cnt += 1
+            indices[i, 2] = plus_cnt
+        else:
+            indices[i, 2] = 0
+
+    states = np.zeros((arr_size, 3), dtype=np.int32)
+    rising_state = 0
+    rising_remain = 0
+    falling_state = 0
+    falling_remain = 0
+    state = 0
+    remain = 0
+    for i in range(arr_size):
+        if indices[i, 0] > 0 and indices[i, 1] == 2 and indices[i, 2] == 2:
+            rising_state = 1
+            rising_remain = holding
+        else:
+            rising_remain -= 1
+            if rising_remain < 0:
+                rising_state = 0
+        states[i, 0] = rising_state
+        if indices[i, 0] < 0 and indices[i, 1] == -2 and indices[i, 2] == -2:
+            falling_state = -1
+            falling_remain = holding
+        else:
+            falling_remain -= 1
+            if falling_remain < 0:
+                falling_state = 0
+        states[i, 1] = falling_state
+        if indices[i, 0] > 0 and indices[i, 1] == 2 and indices[i, 2] == 2:
+            state = 1
+            remain = holding
+        elif indices[i, 0] < 0 and indices[i, 1] == -2 and indices[i, 2] == -2:
+            state = -1
+            remain = holding
+        else:
+            remain -= 1
+            if remain < 0:
+                state = 0
+        states[i, 2] = state
+    plot_signal(arr, states[:, 0])
+    plot_signal(arr, states[:, 1])
+    plot_signal(arr, states[:, 2])
+    return states
+
+
+states = find_state(csv[:, 4], 45, 2, 60)
+
+
+states
+
