@@ -159,7 +159,7 @@ class duplicated_remover:
         else:
             dict_features = {}
         cnt = 0
-        for fn in tqdm(glob(base_path + '/**/*.*', recursive=True)):
+        for fn in tqdm(glob(path + '/**/*.*', recursive=True)):
             fn = fn.replace('\\', '/')
             if fn in dict_features:
                 continue
