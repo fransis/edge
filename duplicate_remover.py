@@ -31,24 +31,36 @@ class feature_extractor:
         ])
         self.model.to(self.device)
 
-    def load_movie(self, video_path):
+    @staticmethod
+    def load_video(video_path):
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"Cannot open video file: {video_path}")
+        
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps
-        timestamps = [0, duration * 0.33, duration * 0.66, duration]
+
+        frame_indices = [int(t * fps) for t in [0, duration * 0.33, duration * 0.66]]
         frames = []
-        for t in timestamps:
-            frame_idx = int(t * fps)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, min(frame_count-1, frame_idx))
+        for frame_idx in frame_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ret, frame = cap.read()
             if not ret:
-                raise ValueError(f"Failed to read frame at timestamp {t} seconds")
+                raise ValueError(f"Failed to read frame at index {frame_idx}/{frame_count}")
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frames.append(frame)
+        for frame_idx in range(frame_count - 1, -1, -1):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame)
+                break
         cap.release()
+
+        if len(frames) != 4:
+            raise ValueError(f"Failed to read 4 frames")
         h, w = frames[0].shape[:2]
         grid = np.zeros((h*2, w*2, 3), dtype=np.uint8)
         grid[:h, :w] = frames[0]
@@ -56,22 +68,24 @@ class feature_extractor:
         grid[h:, :w] = frames[2]
         grid[h:, w:] = frames[3]
         return Image.fromarray(grid)
-    
-    def load_image(self, image_path):
+
+    @staticmethod
+    def load_image(image_path):
         return Image.open(image_path)
     
-    def load_file(self, file_path):
+    @staticmethod
+    def load_file(file_path):
         if file_path.split('.')[-1].lower() in ['mp4', 'mov']:
-            return self.load_movie(file_path)
+            img = feature_extractor.load_video(file_path)
         else:
-            img = self.load_image(file_path)
+            img = feature_extractor.load_image(file_path)
             if img.mode == 'RGBA':
                 rgb_img = Image.new("RGB", img.size, (0,0,0))
-                rgb_img.paste(img, mask=img.split()[3])
+                rgb_img.paste(img, mask=img.split()[3])  # 3번 인덱스는 알파 채널
                 img = rgb_img
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
-            return img
+        return img
     
     def to_latent(self, img):
         img_tensor = self.preprocess(img).unsqueeze(0)
@@ -88,7 +102,7 @@ class feature_extractor:
         return imagehash.average_hash(img)
     
     def to_features(self, fn):
-        img = self.load_file(fn)
+        img = feature_extractor.load_file(fn)
         return self.to_latent(img), self.to_ahash(img), self.to_dhash(img)
 
 
